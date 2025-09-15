@@ -1,6 +1,6 @@
 -- Members
 CREATE TABLE members (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
     phone_number VARCHAR(255) NOT NULL,
@@ -18,7 +18,7 @@ CREATE TABLE members (
 
 -- Products
 CREATE TABLE products (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     price DECIMAL(10,2) NOT NULL,
     description VARCHAR(255),
@@ -32,8 +32,8 @@ CREATE TABLE products (
 
 -- Orders
 CREATE TABLE orders (
-    id BIGSERIAL PRIMARY KEY,
-    member_id BIGINT NOT NULL REFERENCES members(id),
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    member_id BIGINT NOT NULL,
     total_amount DECIMAL(10,2) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     idempotency_key VARCHAR(255) UNIQUE NOT NULL,
@@ -43,23 +43,27 @@ CREATE TABLE orders (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     -- Constraints
-    CONSTRAINT ck_orders_status CHECK (status IN ('PENDING', 'PAID', 'CANCELLED'))
+    CONSTRAINT ck_orders_status CHECK (status IN ('PENDING', 'PAID', 'CANCELLED')),
+    FOREIGN KEY (member_id) REFERENCES members(id)
 );
 
 -- Order Items
 CREATE TABLE order_items (
-    id BIGSERIAL PRIMARY KEY,
-    order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    product_id BIGINT NOT NULL REFERENCES products(id),
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_price DECIMAL(10,2) NOT NULL,
-    total_price DECIMAL(10,2) NOT NULL
+    total_price DECIMAL(10,2) NOT NULL,
+
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
 -- Payments
 CREATE TABLE payments (
-    id BIGSERIAL PRIMARY KEY,
-    order_id BIGINT NOT NULL REFERENCES orders(id),
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     payment_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     payment_method VARCHAR(255),
@@ -67,11 +71,12 @@ CREATE TABLE payments (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT ck_payments_payment_status CHECK (payment_status IN ('PENDING', 'SUCCESS', 'FAILED', 'CANCELLED'))
+    CONSTRAINT ck_payments_payment_status CHECK (payment_status IN ('PENDING', 'SUCCESS', 'FAILED', 'CANCELLED')),
+    FOREIGN KEY (order_id) REFERENCES orders(id)
 );
 
 CREATE TABLE idempotency_records (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
     idempotency_key VARCHAR(255) UNIQUE NOT NULL,
     resource_id VARCHAR(100) NOT NULL,
     resource_type VARCHAR(50) NOT NULL,
