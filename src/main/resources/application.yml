@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: client-management-app
+
+  datasource:
+    url: jdbc:h2:mem:clientdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: password
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+    data:
+      jpa:
+        repositories:
+          enabled: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: true
+
+  security:
+    user:
+      name: admin
+      password: admin123
+
+server:
+  port: 8080
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+    com.jooyeon.app: DEBUG
+
+jwt:
+  secret: mySecretKey123456789012345678901234567890
+  expiration: 86400000
+  refresh-expiration: 604800000
+
+# AES-256-GCM encryption configuration
+app:
+  encryption:
+    secret-key: myEncryptionKey32BytesLong123456
