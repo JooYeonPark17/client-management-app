@@ -26,7 +26,7 @@ public class IdempotencyService {
 
     // Redis의 멱등성 키 저장소를 모방
     // Mimic Redis storage for idempotency keys
-    private final ConcurrentHashMap<String, IdempotencyRecord> idempotencyStore = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, InMemoryIdempotencyRecord> idempotencyStore = new ConcurrentHashMap<>();
 
     private static final String PROCESSING_STATUS = "PROCESSING";
     private static final String COMPLETED_STATUS = "COMPLETED";
@@ -35,14 +35,14 @@ public class IdempotencyService {
 
     @Getter
     @Setter
-    static class IdempotencyRecord {
+    static class InMemoryIdempotencyRecord {
         private final String key;
         private volatile String status;
         private volatile Object result;
         private final LocalDateTime createdAt;
         private volatile LocalDateTime completedAt;
 
-        public IdempotencyRecord(String key) {
+        public InMemoryIdempotencyRecord(String key) {
             this.key = key;
             this.status = PROCESSING_STATUS;
             this.createdAt = LocalDateTime.now();
@@ -57,11 +57,11 @@ public class IdempotencyService {
     public IdempotencyResult checkIdempotency(String idempotencyKey) {
         log.debug("[멱등성] 멱등성 키 확인: {}", idempotencyKey);
 
-        IdempotencyRecord record = idempotencyStore.get(idempotencyKey);
+        InMemoryIdempotencyRecord record = idempotencyStore.get(idempotencyKey);
 
         if (record == null) {
             // 새로운 요청 - 처리 상태로 기록
-            record = new IdempotencyRecord(idempotencyKey);
+            record = new InMemoryIdempotencyRecord(idempotencyKey);
             idempotencyStore.put(idempotencyKey, record);
             log.debug("[멱등성] 새로운 요청 등록: {}", idempotencyKey);
             return new IdempotencyResult(false, null, record);
@@ -108,7 +108,7 @@ public class IdempotencyService {
     public void saveResult(String idempotencyKey, Object result) {
         log.debug("[멱등성] 키에 대한 결과 저장: {}", idempotencyKey);
 
-        IdempotencyRecord record = idempotencyStore.get(idempotencyKey);
+        InMemoryIdempotencyRecord record = idempotencyStore.get(idempotencyKey);
         if (record != null) {
             record.setStatus(COMPLETED_STATUS);
             record.setResult(result);
@@ -125,7 +125,7 @@ public class IdempotencyService {
     public void markFailed(String idempotencyKey) {
         log.debug("[멱등성] 실패로 표시: {}", idempotencyKey);
 
-        IdempotencyRecord record = idempotencyStore.get(idempotencyKey);
+        InMemoryIdempotencyRecord record = idempotencyStore.get(idempotencyKey);
         if (record != null) {
             idempotencyStore.remove(idempotencyKey);
             log.debug("[멱등성] 실패로 인한 레코드 제거: {}", idempotencyKey);
@@ -139,9 +139,9 @@ public class IdempotencyService {
     public static class IdempotencyResult {
         private final boolean duplicate;
         private final Object existingResult;
-        private final IdempotencyRecord record;
+        private final InMemoryIdempotencyRecord record;
 
-        public IdempotencyResult(boolean duplicate, Object existingResult, IdempotencyRecord record) {
+        public IdempotencyResult(boolean duplicate, Object existingResult, InMemoryIdempotencyRecord record) {
             this.duplicate = duplicate;
             this.existingResult = existingResult;
             this.record = record;
@@ -149,6 +149,6 @@ public class IdempotencyService {
 
         public boolean isDuplicate() { return duplicate; }
         public Object getExistingResult() { return existingResult; }
-        public IdempotencyRecord getRecord() { return record; }
+        public InMemoryIdempotencyRecord getRecord() { return record; }
     }
 }
