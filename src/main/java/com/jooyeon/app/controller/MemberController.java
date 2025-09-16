@@ -42,12 +42,12 @@ public class MemberController {
 
         MemberResponseDto memberResponse = memberService.requestWithdrawal(currentMember.getId(), withdrawalRequest);
 
-        WithDrawResponseDto responseDto = WithDrawResponseDto.builder()
-                .memberId(memberResponse.getMemberId())
-                .withdrawalRequestedAt(memberResponse.getWithdrawalRequestedAt())
-                .cancellationDeadline(memberResponse.getWithdrawalRequestedAt().plusDays(30))
-                .message("탈퇴한지 30일 이내에는 탈퇴를 철회할 수 있으며, 탈퇴 철회 시 즉시 서비스 이용이 가능합니다.")
-                .build();
+        WithDrawResponseDto responseDto = new WithDrawResponseDto(
+                memberResponse.getMemberId(),
+                memberResponse.getWithdrawalRequestedAt(),
+                memberResponse.getWithdrawalRequestedAt().plusDays(30),
+                "탈퇴한지 30일 이내에는 탈퇴를 철회할 수 있으며, 탈퇴 철회 시 즉시 서비스 이용이 가능합니다."
+        );
 
         return ResponseEntity.ok(ApiResponse.success("회원탈퇴 요청이 완료되었습니다.", responseDto));
     }

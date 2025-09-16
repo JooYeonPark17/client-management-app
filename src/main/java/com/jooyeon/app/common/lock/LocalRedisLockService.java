@@ -10,10 +10,6 @@ import java.util.concurrent.*;
  * 로컬 메모리 기반 분산락 구현체
  * 현재는 로컬 구현이지만, 분산 환경에서는 Redis 분산락이 필요합니다
  *
- * Local in-memory distributed lock implementation
- * This is a local implementation for demonstration purposes
- * In distributed environment, Redis distributed lock should be used
- *
  * Redis 분산락의 주요 특징들을 모방:
  * - SET key value PX milliseconds NX (Redis 명령어 모방)
  * - Lua 스크립트를 통한 원자적 연산 (로컬에서는 synchronized 블록으로 구현)
@@ -26,11 +22,9 @@ public class LocalRedisLockService implements RedisLockService {
 
 
     // Redis의 메모리 저장소를 모방하는 ConcurrentHashMap
-    // In real Redis implementation, this would be Redis server memory
     private final ConcurrentHashMap<String, LockInfo> lockStore = new ConcurrentHashMap<>();
 
     // Redis의 키 만료 기능을 모방하는 스케줄러
-    // In real Redis implementation, Redis handles TTL automatically
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
     static class LockInfo {
@@ -52,7 +46,6 @@ public class LocalRedisLockService implements RedisLockService {
     @Override
     public boolean tryLock(String lockKey, long waitTime, long leaseTime, TimeUnit timeUnit) {
         // Redis의 SET key value PX milliseconds NX 명령어와 동일한 동작
-        // Equivalent to Redis: SET lockKey threadId PX leaseTimeMs NX
 
         String currentThreadId = getCurrentThreadId();
         long waitTimeMs = timeUnit.toMillis(waitTime);
@@ -69,9 +62,7 @@ public class LocalRedisLockService implements RedisLockService {
             }
 
             try {
-                // Redis 클라이언트의 재시도 간격을 모방
-                // Mimic Redis client retry interval
-                Thread.sleep(100); // 100ms retry interval
+                Thread.sleep(100); // 100ms 후에 재시도
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.warn("[REDIS-락] 락 획득 중단됨: key={}, thread={}", lockKey, currentThreadId);
@@ -86,7 +77,6 @@ public class LocalRedisLockService implements RedisLockService {
 
     /**
      * Redis의 원자적 연산을 모방하는 락 획득 메서드
-     * Atomic lock acquisition mimicking Redis Lua script behavior
      */
     private synchronized boolean acquireLock(String lockKey, String threadId, long leaseTimeMs) {
         // Redis Lua 스크립트와 동일한 로직:
@@ -157,33 +147,12 @@ public class LocalRedisLockService implements RedisLockService {
         }
     }
 
-    @Override
-    public boolean isLocked(String lockKey) {
-        // Redis의 EXISTS 명령어와 동일한 동작
-        LockInfo lockInfo = lockStore.get(lockKey);
-        return lockInfo != null && !isExpired(lockInfo);
-    }
-
-    @Override
-    public void forceUnlock(String lockKey) {
-        // Redis의 DEL 명령어와 동일한 동작 (관리자용)
-        log.warn("[REDIS-락] 강제 락 해제: {}", lockKey);
-        synchronized (this) {
-            LockInfo lockInfo = lockStore.remove(lockKey);
-            if (lockInfo != null && lockInfo.getExpirationTask() != null) {
-                lockInfo.getExpirationTask().cancel(false);
-            }
-        }
-    }
-
-
     private boolean isExpired(LockInfo lockInfo) {
         return Instant.now().toEpochMilli() > lockInfo.getExpirationTime();
     }
 
     private void expireLock(String lockKey, LockInfo lockInfo) {
         // Redis의 자동 만료 기능을 모방
-        // Mimic Redis automatic expiration
         synchronized (this) {
             LockInfo currentLock = lockStore.get(lockKey);
             if (currentLock == lockInfo) { // 동일한 락인지 확인
@@ -195,7 +164,6 @@ public class LocalRedisLockService implements RedisLockService {
 
     private String getCurrentThreadId() {
         // Redis 분산락에서 사용하는 클라이언트 식별자를 모방
-        // Mimic Redis distributed lock client identifier
         return Thread.currentThread().getName() + "-" + Thread.currentThread().getId();
     }
 

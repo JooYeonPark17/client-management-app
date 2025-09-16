@@ -12,7 +12,4 @@ public interface RedisLockService {
 
     void unlock(String lockKey);
 
-    boolean isLocked(String lockKey);
-
-    void forceUnlock(String lockKey);
 }

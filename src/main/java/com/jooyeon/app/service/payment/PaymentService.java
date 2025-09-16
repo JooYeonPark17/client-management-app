@@ -1,7 +1,6 @@
 package com.jooyeon.app.service.payment;
 
 import com.jooyeon.app.common.idempotency.IdempotencyService;
-import com.jooyeon.app.common.lock.Lock;
 import com.jooyeon.app.domain.entity.order.OrderStatus;
 import com.jooyeon.app.domain.entity.order.Order;
 import com.jooyeon.app.domain.entity.payment.Payment;
@@ -17,11 +16,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 /**
- * 결제 서비스 - 분산락과 멱등성 키 적용
- * 현재는 로컬 구현이지만, 분산 환경에서는 Redis 분산락이 필요합니다
+ * 결제 서비스 - IdempotencyService를 통한 멱등성 보장
+ * 락 처리는 IdempotencyService에서 담당
  */
 @Service
 @RequiredArgsConstructor
@@ -33,18 +31,40 @@ public class PaymentService {
     private final IdempotencyService idempotencyService;
 
 
-    /**
-     * 결제 처리 - 분산락과 멱등성 키로 중복 결제 방지
-     * 현재는 로컬 구현이지만, 분산 환경에서는 Redis 분산락이 필요합니다
-     *
-     * Redis 분산락 키 패턴: "payment:order:{orderId}"
-     * 멱등성 키: 클라이언트가 제공하는 고유 키
-     */
-    @Lock(key = "'payment:order:' + #orderId", waitTime = 10, leaseTime = 30, timeUnit = TimeUnit.SECONDS)
     @Transactional
     public Payment processPayment(Long orderId, String idempotencyKey, String paymentMethod) {
+        // 1. 멱등성 키 검증
+        Payment existingResult = checkIdempotency(idempotencyKey);
+        if (existingResult != null) {
+            return existingResult;
+        }
 
-        // 1. 멱등성 키 검증 - 중복 결제 방지
+        try {
+            // 2. 주문 조회 및 검증
+            Order order = validateAndGetOrder(orderId);
+
+            // 3. 기존 결제 확인
+            Payment existingPayment = checkExistingPayment(orderId, idempotencyKey);
+            if (existingPayment != null) {
+                return existingPayment;
+            }
+
+            // 4. 결제 생성 및 처리
+            Payment payment = createPayment(order, paymentMethod);
+            executePayment(payment, order);
+
+            // 5. 멱등성 키에 결과 저장
+            idempotencyService.saveResult(idempotencyKey, payment);
+            return payment;
+
+        } catch (Exception e) {
+            idempotencyService.markFailed(idempotencyKey);
+            log.error("[PAYMENT] 결제 처리 실패: {}", e.getMessage(), e);
+            throw e;
+        }
+    }
+
+    private Payment checkIdempotency(String idempotencyKey) {
         IdempotencyService.IdempotencyResult idempotencyResult = idempotencyService.checkIdempotency(idempotencyKey);
 
         if (idempotencyResult.isDuplicate()) {
@@ -54,62 +74,54 @@ public class PaymentService {
                 throw new IllegalStateException("Payment already in progress");
             }
         }
+        return null;
+    }
 
-        try {
-            // 2. 주문 조회 및 검증 (낙관적 락 적용)
-            Optional<Order> orderOpt = orderRepository.findById(orderId);
-            if (orderOpt.isEmpty()) {
-                throw new IllegalArgumentException("Order not found: " + orderId);
-            }
-            Order order = orderOpt.get();
+    private Order validateAndGetOrder(Long orderId) {
+        Optional<Order> orderOpt = orderRepository.findById(orderId);
+        if (orderOpt.isEmpty()) {
+            throw new IllegalArgumentException("Order not found: " + orderId);
+        }
+        return orderOpt.get();
+    }
 
-            // 3. 기존 결제 내역 확인
-            List<Payment> existingPayments = paymentRepository.findByOrderIdAndPaymentStatus(
-                orderId, PaymentStatus.SUCCESS);
+    private Payment checkExistingPayment(Long orderId, String idempotencyKey) {
+        List<Payment> existingPayments = paymentRepository.findByOrderIdAndPaymentStatus(
+            orderId, PaymentStatus.SUCCESS);
 
-            if (!existingPayments.isEmpty()) {
-                log.warn("[PAYMENT] 이미 결제된 주문: orderId={}", orderId);
-                Payment result = existingPayments.get(0);
-                idempotencyService.saveResult(idempotencyKey, result);
-                return result;
-            }
+        if (!existingPayments.isEmpty()) {
+            log.warn("[PAYMENT] 이미 결제된 주문: orderId={}", orderId);
+            Payment result = existingPayments.get(0);
+            idempotencyService.saveResult(idempotencyKey, result);
+            return result;
+        }
+        return null;
+    }
 
-            // 4. 결제 처리
-            Payment payment = new Payment();
-            payment.setOrderId(orderId);
-            payment.setAmount(order.getTotalAmount());
-            payment.setPaymentMethod(paymentMethod);
-            payment.setPaymentStatus(PaymentStatus.PENDING);
-            payment.setTransactionId(generateTransactionId());
-            payment.setCreatedAt(LocalDateTime.now());
-            payment.setUpdatedAt(LocalDateTime.now());
+    private Payment createPayment(Order order, String paymentMethod) {
+        Payment payment = new Payment();
+        payment.setOrderId(order.getId());
+        payment.setAmount(order.getTotalAmount());
+        payment.setPaymentMethod(paymentMethod);
+        payment.setPaymentStatus(PaymentStatus.PENDING);
+        payment.setTransactionId(generateTransactionId());
+        payment.setCreatedAt(LocalDateTime.now());
+        payment.setUpdatedAt(LocalDateTime.now());
 
-            payment = paymentRepository.save(payment);
+        return paymentRepository.save(payment);
+    }
 
-            // 5. 외부 결제 게이트웨이 호출 시뮬레이션
-            boolean paymentSuccess = processExternalPayment(payment);
+    private void executePayment(Payment payment, Order order) {
+        boolean paymentSuccess = processExternalPayment(payment);
 
-            if (paymentSuccess) {
-                payment.setPaymentStatus(PaymentStatus.SUCCESS);
-                paymentRepository.save(payment);
-
-                // 6. 주문 상태 업데이트 (낙관적 락 버전 체크)
-                updateOrderStatus(order);
-            } else {
-                payment.setPaymentStatus(PaymentStatus.FAILED);
-                paymentRepository.save(payment);
-                throw new RuntimeException("Payment processing failed");
-            }
-
-            // 7. 멱등성 키에 결과 저장
-            idempotencyService.saveResult(idempotencyKey, payment);
-            return payment;
-
-        } catch (Exception e) {
-            // 8. 실패시 멱등성 키 초기화
-            idempotencyService.markFailed(idempotencyKey);
-            log.error("[PAYMENT] 결제 처리 실패: {}", e.getMessage(), e);
-            throw e;
+        if (paymentSuccess) {
+            payment.setPaymentStatus(PaymentStatus.SUCCESS);
+            paymentRepository.save(payment);
+            updateOrderStatus(order);
+        } else {
+            payment.setPaymentStatus(PaymentStatus.FAILED);
+            paymentRepository.save(payment);
+            throw new RuntimeException("Payment processing failed");
         }
     }
 
@@ -143,17 +155,6 @@ public class PaymentService {
             Thread.currentThread().interrupt();
             return false;
         }
-    }
-
-    /**
-     * 간편 결제 처리 메서드 - OrderService에서 사용
-     */
-    @Transactional
-    public Long processPayment(Long orderId, java.math.BigDecimal amount) {
-        String idempotencyKey = "payment_" + orderId + "_" + java.time.Instant.now().toEpochMilli();
-        String paymentMethod = "DEFAULT";
-        Payment payment = processPayment(orderId, idempotencyKey, paymentMethod);
-        return payment.getId();
     }
 
     /**

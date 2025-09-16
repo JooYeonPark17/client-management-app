@@ -25,7 +25,6 @@ public class ProductService {
 
     private final ProductRepository productRepository;
 
-
     public ProductResponseDto getProductById(Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ProductException(ErrorCode.PRODUCT_NOT_FOUND));

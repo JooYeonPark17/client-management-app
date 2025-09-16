@@ -60,45 +60,67 @@ public class IdempotencyService {
         InMemoryIdempotencyRecord record = idempotencyStore.get(idempotencyKey);
 
         if (record == null) {
-            // 새로운 요청 - 처리 상태로 기록
-            record = new InMemoryIdempotencyRecord(idempotencyKey);
-            idempotencyStore.put(idempotencyKey, record);
-            log.debug("[멱등성] 새로운 요청 등록: {}", idempotencyKey);
-            return new IdempotencyResult(false, null, record);
+            return handleNewRequest(idempotencyKey);
         }
 
         if (PROCESSING_STATUS.equals(record.getStatus())) {
-            // 처리 타임아웃 확인 (Redis TTL 모방)
-            if (record.getCreatedAt().isBefore(LocalDateTime.now().minusMinutes(PROCESSING_TIMEOUT_MINUTES))) {
-                log.warn("[멱등성] 처리 타임아웃 감지, 재시도 허용: {}", idempotencyKey);
-                record.setStatus(PROCESSING_STATUS);
-                record.setResult(null);
-                return new IdempotencyResult(false, null, record);
-            } else {
-                log.debug("[멱등성] 이미 처리 중인 요청: {}", idempotencyKey);
-                return new IdempotencyResult(true, null, record);
-            }
+            return handleProcessingStatus(record, idempotencyKey);
         }
 
         if (COMPLETED_STATUS.equals(record.getStatus())) {
-            // 결과 보관 시간 확인 (Redis TTL 모방)
-            if (record.getCompletedAt() != null &&
-                record.getCompletedAt().isBefore(LocalDateTime.now().minusHours(RESULT_RETENTION_HOURS))) {
-                log.debug("[멱등성] 결과 만료, 새 처리 허용: {}", idempotencyKey);
-                record.setStatus(PROCESSING_STATUS);
-                record.setResult(null);
-                return new IdempotencyResult(false, null, record);
-            } else {
-                log.debug("[멱등성] 캐시된 결과 반환: {}", idempotencyKey);
-                return new IdempotencyResult(true, record.getResult(), record);
-            }
+            return handleCompletedStatus(record, idempotencyKey);
         }
 
-        // 알 수 없는 상태 - 새로 처리
+        return handleUnknownStatus(record, idempotencyKey);
+    }
+
+    private IdempotencyResult handleNewRequest(String idempotencyKey) {
+        InMemoryIdempotencyRecord record = new InMemoryIdempotencyRecord(idempotencyKey);
+        idempotencyStore.put(idempotencyKey, record);
+        log.debug("[멱등성] 새로운 요청 등록: {}", idempotencyKey);
+        return new IdempotencyResult(false, null, record);
+    }
+
+    private IdempotencyResult handleProcessingStatus(InMemoryIdempotencyRecord record, String idempotencyKey) {
+        if (isProcessingTimeout(record)) {
+            log.warn("[멱등성] 처리 타임아웃 감지, 재시도 허용: {}", idempotencyKey);
+            resetRecordToProcessing(record);
+            return new IdempotencyResult(false, null, record);
+        } else {
+            log.debug("[멱등성] 이미 처리 중인 요청: {}", idempotencyKey);
+            return new IdempotencyResult(true, null, record);
+        }
+    }
+
+    private IdempotencyResult handleCompletedStatus(InMemoryIdempotencyRecord record, String idempotencyKey) {
+        if (isResultExpired(record)) {
+            log.debug("[멱등성] 결과 만료, 새 처리 허용: {}", idempotencyKey);
+            resetRecordToProcessing(record);
+            return new IdempotencyResult(false, null, record);
+        } else {
+            log.debug("[멱등성] 캐시된 결과 반환: {}", idempotencyKey);
+            return new IdempotencyResult(true, record.getResult(), record);
+        }
+    }
+
+    private IdempotencyResult handleUnknownStatus(InMemoryIdempotencyRecord record, String idempotencyKey) {
         log.warn("[멱등성] 알 수 없는 상태 감지, 재설정: {}", idempotencyKey);
+        resetRecordToProcessing(record);
+        return new IdempotencyResult(false, null, record);
+    }
+
+    private boolean isProcessingTimeout(InMemoryIdempotencyRecord record) {
+        return record.getCreatedAt().isBefore(LocalDateTime.now().minusMinutes(PROCESSING_TIMEOUT_MINUTES));
+    }
+
+    private boolean isResultExpired(InMemoryIdempotencyRecord record) {
+        return record.getCompletedAt() != null &&
+               record.getCompletedAt().isBefore(LocalDateTime.now().minusHours(RESULT_RETENTION_HOURS));
+    }
+
+    private void resetRecordToProcessing(InMemoryIdempotencyRecord record) {
         record.setStatus(PROCESSING_STATUS);
         record.setResult(null);
-        return new IdempotencyResult(false, null, record);
     }
 
     /**

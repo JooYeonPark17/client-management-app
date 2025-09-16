@@ -55,14 +55,11 @@ public class TokenValidationService {
 
     private boolean validateTokenByType(String token, String tokenType) {
         try {
-            if ("ACCESS".equals(tokenType)) {
-                return jwtUtil.validateAccessToken(token);
-            } else if ("REFRESH".equals(tokenType)) {
-                return jwtUtil.validateRefreshToken(token);
-            } else {
-                log.warn("[TOKEN_VALIDATION] 알 수 없는 토큰 타입: {}", tokenType);
-                return false;
-            }
+            return switch (tokenType) {
+                case "ACCESS" -> jwtUtil.validateAccessToken(token);
+                case "REFRESH_TOKEN" -> jwtUtil.validateRefreshToken(token);
+                default -> false;
+            };
         } catch (Exception e) {
             log.warn("[TOKEN_VALIDATION] 토큰 유효성 검증 실패: tokenType={}, error={}", tokenType, e.getMessage());
             return false;
