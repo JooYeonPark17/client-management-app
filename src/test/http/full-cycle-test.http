@@ -3,7 +3,8 @@
 ### Step by Step: 회원가입 -> 로그인 -> 주문 -> 주문 취소 -> 회원탈퇴
 ### ==============================================
 
-### STEP 1: 회원가입 (Sign Up)
+>
+### STEP 1: 회원가입
 POST http://localhost:8080/api/members/register
 Content-Type: application/json
 
@@ -23,7 +24,7 @@ Content-Type: application/json
 %}
 
 
-### STEP 2: 로그인 (Login)
+### STEP 2: 로그인
 POST http://localhost:8080/api/auth/login
 Content-Type: application/json
 
@@ -45,7 +46,7 @@ Content-Type: application/json
 %}
 
 
-### STEP 3: 토큰 검증 (Validate Token)
+### STEP 3: 토큰 검증
 POST http://localhost:8080/api/auth/validate?token={{access_token}}
 Authorization: Bearer {{access_token}}
 
@@ -58,13 +59,13 @@ Authorization: Bearer {{access_token}}
     });
 %}
 
-### STEP 4: 주문 생성 (Place Order)
+### STEP 4: 주문 생성
 POST http://localhost:8080/api/orders
 Authorization: Bearer {{access_token}}
 Content-Type: application/json
 
 {
-  "idempotencyKey": "full-cycle-test-{{$timestamp}}",
+  "idempotencyKey": "full-cycle-test-testuser001-{{$timestamp}}",
   "items": [
     {
       "productId": 1,
@@ -91,7 +92,7 @@ Content-Type: application/json
     });
 %}
 
-### STEP 5: 주문 상세 조회 (Check Order Details)
+### STEP 5: 주문 상세 조회
 GET http://localhost:8080/api/orders/{{order_id}}
 Authorization: Bearer {{access_token}}
 
@@ -109,7 +110,7 @@ Authorization: Bearer {{access_token}}
     });
 %}
 
-### STEP 6: 주문 취소 (Cancel Order)
+### STEP 6: 주문 취소
 DELETE http://localhost:8080/api/orders/{{order_id}}
 Authorization: Bearer {{access_token}}
 
@@ -123,7 +124,7 @@ Authorization: Bearer {{access_token}}
 %}
 
 
-### STEP 7: 취소된 주문 확인 (Verify Cancellation)
+### STEP 7: 취소된 주문 확인
 GET http://localhost:8080/api/orders/{{order_id}}
 Authorization: Bearer {{access_token}}
 
@@ -136,7 +137,7 @@ Authorization: Bearer {{access_token}}
     });
 %}
 
-### STEP 8 : 회원 탈퇴 (Optional - Delete Test Account)
+### STEP 8 : 회원 탈퇴
 DELETE http://localhost:8080/api/members/withdraw
 Authorization: Bearer {{access_token}}
 Content-Type: application/json

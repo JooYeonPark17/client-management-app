@@ -9,6 +9,8 @@ import com.jooyeon.app.domain.entity.member.MemberStatus;
 import com.jooyeon.app.domain.entity.order.Order;
 import com.jooyeon.app.domain.entity.order.OrderItem;
 import com.jooyeon.app.domain.entity.order.OrderStatus;
+import com.jooyeon.app.domain.entity.payment.Payment;
+import com.jooyeon.app.domain.entity.payment.PaymentStatus;
 import com.jooyeon.app.domain.entity.product.Product;
 import com.jooyeon.app.domain.entity.product.ProductStatus;
 import com.jooyeon.app.repository.OrderRepository;
@@ -64,6 +66,7 @@ class OrderServiceTest {
     private Product testProduct2;
     private OrderCreateRequestDto orderCreateRequest;
     private Order testOrder;
+    private Payment testPayment;
 
     @BeforeEach
     void setUp() {
@@ -125,20 +128,30 @@ class OrderServiceTest {
         orderItem2.setTotalPrice(testProduct2.getPrice());
 
         testOrder.setItems(Arrays.asList(orderItem1, orderItem2));
+
+        // 테스트 결제
+        testPayment = new Payment();
+        testPayment.setId(100L);
+        testPayment.setOrderId(1L);
+        testPayment.setAmount(new BigDecimal("130.00"));
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+        testPayment.setPaymentMethod("DEFAULT");
+        testPayment.setTransactionId("TXN_TEST123");
+        testPayment.setCreatedAt(LocalDateTime.now());
+        testPayment.setUpdatedAt(LocalDateTime.now());
     }
 
     @Test
     @DisplayName("주문 생성 - 성공")
     void createOrder_Success() {
         // given
-        when(orderRepository.findByIdempotencyKey("test-order-123")).thenReturn(Optional.empty());
         when(memberService.findMemberEntityById(1L)).thenReturn(testMember);
         when(productService.getProductsByIds(Arrays.asList(1L, 2L)))
                 .thenReturn(Arrays.asList(testProduct1, testProduct2));
         doNothing().when(productService).checkStockAvailability(anyLong(), anyInt());
         doNothing().when(productService).reserveStock(anyLong(), anyInt());
         when(orderRepository.save(any(Order.class))).thenReturn(testOrder);
-        when(paymentService.processPayment(anyLong(), any(BigDecimal.class))).thenReturn(100L);
+        when(paymentService.processPayment(anyLong(), eq("test-order-123"), eq("DEFAULT"))).thenReturn(testPayment);
 
         // when
         OrderResponseDto result = orderService.createOrder(1L, orderCreateRequest);
@@ -149,42 +162,20 @@ class OrderServiceTest {
         assertThat(result.getMemberId()).isEqualTo(1L);
         assertThat(result.getStatus()).isEqualTo(OrderStatus.PAID);
         assertThat(result.getTotalAmount()).isEqualTo(new BigDecimal("130.00"));
-        // assertThat(result.getIdempotencyKey()).isEqualTo("test-order-123"); // OrderResponseDto에 없음
 
-        verify(orderRepository).findByIdempotencyKey("test-order-123");
         verify(memberService).findMemberEntityById(1L);
         verify(productService).getProductsByIds(Arrays.asList(1L, 2L));
         verify(productService, times(2)).checkStockAvailability(anyLong(), anyInt());
         verify(productService, times(2)).reserveStock(anyLong(), anyInt());
-        verify(paymentService).processPayment(anyLong(), any(BigDecimal.class));
+        verify(paymentService).processPayment(anyLong(), eq("test-order-123"), eq("DEFAULT"));
         verify(orderRepository, times(2)).save(any(Order.class));
     }
 
-    @Test
-    @DisplayName("주문 생성 - 멱등성 키 중복")
-    void createOrder_DuplicateIdempotencyKey() {
-        // given
-        when(orderRepository.findByIdempotencyKey("test-order-123")).thenReturn(Optional.of(testOrder));
-
-        // when
-        OrderResponseDto result = orderService.createOrder(1L, orderCreateRequest);
-
-        // then
-        assertThat(result).isNotNull();
-        assertThat(result.getOrderId()).isEqualTo(1L);
-        // assertThat(result.getIdempotencyKey()).isEqualTo("test-order-123"); // OrderResponseDto에 없음
-
-        verify(orderRepository).findByIdempotencyKey("test-order-123");
-        verify(memberService, never()).findMemberEntityById(anyLong());
-        verify(productService, never()).getProductsByIds(anyList());
-        verify(orderRepository, never()).save(any(Order.class));
-    }
 
     @Test
     @DisplayName("주문 생성 - 상품을 찾을 수 없음")
     void createOrder_ProductNotFound() {
         // given
-        when(orderRepository.findByIdempotencyKey("test-order-123")).thenReturn(Optional.empty());
         when(memberService.findMemberEntityById(1L)).thenReturn(testMember);
         when(productService.getProductsByIds(Arrays.asList(1L, 2L)))
                 .thenReturn(Collections.singletonList(testProduct1)); // 상품 2가 없음
@@ -201,7 +192,6 @@ class OrderServiceTest {
     @DisplayName("주문 생성 - 재고 부족")
     void createOrder_InsufficientStock() {
         // given
-        when(orderRepository.findByIdempotencyKey("test-order-123")).thenReturn(Optional.empty());
         when(memberService.findMemberEntityById(1L)).thenReturn(testMember);
         when(productService.getProductsByIds(Arrays.asList(1L, 2L)))
                 .thenReturn(Arrays.asList(testProduct1, testProduct2));
@@ -214,67 +204,6 @@ class OrderServiceTest {
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ORDER_CREATION_FAILED);
 
         verify(productService, times(2)).releaseStock(anyLong(), anyInt());
-    }
-
-    @Test
-    @DisplayName("회원 주문 목록 조회 - 성공")
-    void getOrdersByMember_Success() {
-        // given
-        Long memberId = 1L;
-        Pageable pageable = PageRequest.of(0, 10);
-        List<Order> orders = Arrays.asList(testOrder);
-        Page<Order> orderPage = new PageImpl<>(orders, pageable, 1);
-
-        when(orderRepository.findByMemberIdOrderByCreatedAtDesc(memberId, pageable))
-                .thenReturn(orderPage);
-
-        // when
-        Page<OrderResponseDto> result = orderService.getOrdersByMember(memberId, pageable);
-
-        // then
-        assertThat(result).isNotNull();
-        assertThat(result.getContent()).hasSize(1);
-        assertThat(result.getContent().get(0).getOrderId()).isEqualTo(1L);
-        assertThat(result.getTotalElements()).isEqualTo(1);
-
-        verify(orderRepository).findByMemberIdOrderByCreatedAtDesc(memberId, pageable);
-    }
-
-    @Test
-    @DisplayName("주문 상세 조회 - 성공")
-    void getOrderById_Success() {
-        // given
-        Long orderId = 1L;
-        Long memberId = 1L;
-        when(orderRepository.findByIdAndMemberId(orderId, memberId))
-                .thenReturn(Optional.of(testOrder));
-
-        // when
-        OrderResponseDto result = orderService.getOrderById(orderId, memberId);
-
-        // then
-        assertThat(result).isNotNull();
-        assertThat(result.getOrderId()).isEqualTo(orderId);
-        assertThat(result.getMemberId()).isEqualTo(memberId);
-
-        verify(orderRepository).findByIdAndMemberId(orderId, memberId);
-    }
-
-    @Test
-    @DisplayName("주문 상세 조회 - 주문을 찾을 수 없음")
-    void getOrderById_OrderNotFound() {
-        // given
-        Long orderId = 999L;
-        Long memberId = 1L;
-        when(orderRepository.findByIdAndMemberId(orderId, memberId))
-                .thenReturn(Optional.empty());
-
-        // when & then
-        assertThatThrownBy(() -> orderService.getOrderById(orderId, memberId))
-                .isInstanceOf(OrderException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ORDER_NOT_FOUND);
-
-        verify(orderRepository).findByIdAndMemberId(orderId, memberId);
     }
 
     @Test

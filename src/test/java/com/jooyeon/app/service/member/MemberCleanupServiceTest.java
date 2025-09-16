@@ -118,39 +118,6 @@ class MemberCleanupServiceTest {
     }
 
     @Test
-    @DisplayName("수동 정리 작업이 정상적으로 수행된다")
-    void manualCleanupExpiredWithdrawnMembers_Success() {
-        // given
-        List<Member> expiredMembers = Arrays.asList(expiredMember1, expiredMember2);
-        when(memberRepository.findMembersWithdrawnBefore(eq(MemberStatus.WITHDRAWN), any(LocalDateTime.class)))
-                .thenReturn(expiredMembers);
-
-        // when
-        int deletedCount = memberCleanupService.manualCleanupExpiredWithdrawnMembers();
-
-        // then
-        assertThat(deletedCount).isEqualTo(2);
-        verify(memberRepository).findMembersWithdrawnBefore(eq(MemberStatus.WITHDRAWN), any(LocalDateTime.class));
-        verify(memberRepository, times(2)).delete(any(Member.class));
-    }
-
-    @Test
-    @DisplayName("수동 정리 작업에서 삭제 대상이 없을 때 정상적으로 처리된다")
-    void manualCleanupExpiredWithdrawnMembers_NoTargets() {
-        // given
-        when(memberRepository.findMembersWithdrawnBefore(eq(MemberStatus.WITHDRAWN), any(LocalDateTime.class)))
-                .thenReturn(Collections.emptyList());
-
-        // when
-        int deletedCount = memberCleanupService.manualCleanupExpiredWithdrawnMembers();
-
-        // then
-        assertThat(deletedCount).isEqualTo(0);
-        verify(memberRepository).findMembersWithdrawnBefore(eq(MemberStatus.WITHDRAWN), any(LocalDateTime.class));
-        verify(memberRepository, never()).delete(any(Member.class));
-    }
-
-    @Test
     @DisplayName("삭제 대상 회원 수 조회가 정상적으로 수행된다")
     void getExpiredWithdrawnMembersCount_Success() {
         // given

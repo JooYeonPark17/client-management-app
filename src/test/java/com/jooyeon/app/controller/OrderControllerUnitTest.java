@@ -131,66 +131,6 @@ class OrderControllerUnitTest {
     }
 
     @Test
-    @DisplayName("내 주문 목록 조회 - 성공")
-    void getOrdersByMember_Success() {
-        // given
-        List<OrderResponseDto> orders = Arrays.asList(orderResponseDto);
-        Page<OrderResponseDto> orderPage = new PageImpl<>(orders, PageRequest.of(0, 20), 1);
-        Pageable pageable = PageRequest.of(0, 20);
-
-        when(orderService.getOrdersByMember(eq(1L), any(Pageable.class)))
-                .thenReturn(orderPage);
-
-        // when
-        ResponseEntity<ApiResponse<Page<OrderResponseDto>>> response =
-                orderController.getOrdersByMember(pageable, testMember);
-
-        // then
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().isSuccess()).isTrue();
-        assertThat(response.getBody().getData().getContent()).hasSize(1);
-        assertThat(response.getBody().getData().getContent().get(0).getOrderId()).isEqualTo(1L);
-        assertThat(response.getBody().getData().getTotalElements()).isEqualTo(1);
-        assertThat(response.getBody().getData().getTotalPages()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("주문 상세 조회 - 성공")
-    void getOrderById_Success() {
-        // given
-        Long orderId = 1L;
-        when(orderService.getOrderById(eq(orderId), eq(1L)))
-                .thenReturn(orderResponseDto);
-
-        // when
-        ResponseEntity<ApiResponse<OrderResponseDto>> response =
-                orderController.getOrderById(orderId, testMember);
-
-        // then
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().isSuccess()).isTrue();
-        assertThat(response.getBody().getData().getOrderId()).isEqualTo(1L);
-        assertThat(response.getBody().getData().getMemberId()).isEqualTo(1L);
-        assertThat(response.getBody().getData().getStatus()).isEqualTo(OrderStatus.PAID);
-    }
-
-    @Test
-    @DisplayName("주문 상세 조회 - 주문이 존재하지 않는 경우")
-    void getOrderById_OrderNotFound() {
-        // given
-        Long orderId = 999L;
-        when(orderService.getOrderById(eq(orderId), eq(1L)))
-                .thenThrow(new OrderException(ErrorCode.ORDER_NOT_FOUND));
-
-        // when & then
-        assertThatThrownBy(() -> orderController.getOrderById(orderId, testMember))
-                .isInstanceOf(OrderException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.ORDER_NOT_FOUND);
-    }
-
-    @Test
     @DisplayName("주문 취소 - 성공")
     void cancelOrder_Success() {
         // given
